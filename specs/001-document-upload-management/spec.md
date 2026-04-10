@@ -5,6 +5,12 @@
 **Status**: Draft  
 **Input**: User description from StakeholderDocs/document-upload-and-management-feature.md
 
+## Clarifications
+
+### Session 2026-04-09
+
+- Q: Support both explicit shares and project/task membership access? → A: Support both explicit shares and project/task membership access.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Upload and manage personal documents (Priority: P1)
@@ -78,6 +84,7 @@ Users need to share documents with teams and attach them to tasks for collaborat
 - **FR-007**: System MUST permit owners to edit metadata and replace files.
 - **FR-008**: System MUST allow owners and managers to delete documents after confirmation.
 - **FR-009**: System MUST support sharing documents with notifications to recipients.
+- **FR-009a**: System MUST grant access to project/task related documents through both explicit recipient sharing and project/task membership associations.
 - **FR-010**: System MUST integrate document attachments with tasks and projects.
 - **FR-011**: System MUST display recent documents on dashboard and update summary counts.
 - **FR-012**: System MUST log activities for audit and reporting.
@@ -87,7 +94,7 @@ Users need to share documents with teams and attach them to tasks for collaborat
 ### Key Entities *(include if feature involves data)*
 
 - **Document**: Uploaded file with metadata like title, category, project, owner, timestamps, size, type.
-- **DocumentShare**: Links documents to shared recipients with share details.
+- **DocumentShare**: Links documents to shared recipients and project/task access with share details.
 - **DocumentActivity**: Audit logs for document operations.
 - **ProjectDocument**: Associates documents with projects for access control.
 
