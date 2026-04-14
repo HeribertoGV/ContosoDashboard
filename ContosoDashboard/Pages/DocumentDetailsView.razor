@@ -1,0 +1,404 @@
+@page "/document-details/{DocumentIdStr}"
+@using ContosoDashboard.Services
+@using ContosoDashboard.Models
+@inject IDocumentService DocumentService
+@inject NavigationManager NavManager
+
+<PageTitle>Document Details - ContosoDashboard</PageTitle>
+
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1>@(Document?.Title ?? "Loading...")</h1>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(SuccessMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @SuccessMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (IsLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (Document != null)
+    {
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Document Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong>File Name:</strong>
+                                <p>@Document.FileName</p>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>File Size:</strong>
+                                <p>@FormatFileSize(Document.FileSize)</p>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong>Category:</strong>
+                                <p><span class="badge bg-secondary">@Document.Category</span></p>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Uploaded:</strong>
+                                <p>@Document.UploadedDate.ToString("yyyy-MM-dd HH:mm")</p>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(Document.Description))
+                        {
+                            <div class="mb-3">
+                                <strong>Description:</strong>
+                                <p>@Document.Description</p>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(Document.Tags))
+                        {
+                            <div class="mb-3">
+                                <strong>Tags:</strong>
+                                <p>
+                                    @foreach (var tag in Document.Tags.Split(',', System.StringSplitOptions.RemoveEmptyEntries))
+                                    {
+                                        <span class="badge bg-info">@tag.Trim()</span>
+                                    }
+                                </p>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(Document.ProjectName))
+                        {
+                            <div class="mb-3">
+                                <strong>Project:</strong>
+                                <p>@Document.ProjectName</p>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="card-footer">
+                        <a href="/documents" class="btn btn-secondary">Back to Documents</a>
+                        <button type="button" class="btn btn-primary" @onclick="DownloadDocument">
+                            <span class="bi bi-download"></span> Download
+                        </button>
+                        <button type="button" class="btn btn-warning" @onclick="ToggleEditMode">
+                            <span class="bi bi-pencil"></span> Edit
+                        </button>
+                        @if (Document != null && Document.OwnerUserId == CurrentUserId)
+                        {
+                            <button type="button" class="btn btn-info" @onclick="OpenShareModal" data-bs-toggle="modal" data-bs-target="#shareModal">
+                                <span class="bi bi-share"></span> Share
+                            </button>
+                        }
+                        <button type="button" class="btn btn-danger" @onclick="DeleteDocument">
+                            <span class="bi bi-trash"></span> Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Share Modal -->
+<div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="shareModalLabel"><span class="bi bi-share"></span> Share Document with Team</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(ShareError))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <strong>Unable to Share:</strong> @ShareError
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                }
+
+                <p class="text-muted small mb-3">Select colleagues to share this document with. They will receive a notification.</p>
+
+                <div class="mb-3">
+                    <label for="shareMessage" class="form-label">Message (optional):</label>
+                    <textarea class="form-control" id="shareMessage" rows="3" @bind="ShareMessage" placeholder="Add a message for recipients..."></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Share with users:</label>
+                    @if (AvailableUsers == null || AvailableUsers.Count == 0)
+                    {
+                        <p class="text-muted">Loading users...</p>
+                    }
+                    else if (AvailableUsers.Count == 0)
+                    {
+                        <p class="text-muted">No other users available to share with.</p>
+                    }
+                    else
+                    {
+                        <div class="form-check" style="max-height: 200px; overflow-y: auto;">
+                            @foreach (var user in AvailableUsers)
+                            {
+                                var checkboxId = $"user_{user.UserId}";
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="@checkboxId" value="@user.UserId" @onchange="(ChangeEventArgs e) => HandleUserSelection(user.UserId, (bool)e.Value!)" />
+                                    <label class="form-check-label" for="@checkboxId">
+                                        @user.UserName
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @if (SelectedUserIds.Count > 0)
+                {
+                    <div class="alert alert-info">
+                        Selected @SelectedUserIds.Count recipient(s)
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" @onclick="SendShares" disabled="@(IsSharing || SelectedUserIds.Count == 0)">
+                    @if (IsSharing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Sharing...</span>
+                    }
+                    else
+                    {
+                        <span>Share with Selected Users</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string DocumentIdStr { get; set; } = "";
+
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationState { get; set; } = null!;
+
+    private int CurrentUserId;
+    private int DocumentId;
+    private Services.DocumentDetails? Document;
+    private bool IsLoading = false;
+    private string ErrorMessage = "";
+    private string SuccessMessage = "";
+
+    // Share functionality
+    private List<Services.DocumentUserInfo>? AvailableUsers = new();
+    private HashSet<int> SelectedUserIds = new();
+    private string ShareMessage = "";
+    private bool IsSharing = false;
+    private string ShareError = "";
+
+    [Inject]
+    private IUserService UserService { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationState;
+        if (!authState.User.Identity?.IsAuthenticated ?? true)
+        {
+            NavManager.NavigateTo("/login");
+            return;
+        }
+
+        var userIdClaim = authState.User.FindFirst("UserId")?.Value;
+        if (int.TryParse(userIdClaim, out var userId))
+        {
+            CurrentUserId = userId;
+        }
+
+        if (int.TryParse(DocumentIdStr, out var docId))
+        {
+            DocumentId = docId;
+            await LoadDocument();
+        }
+        else
+        {
+            ErrorMessage = "Invalid document ID.";
+        }
+    }
+
+    private async Task LoadDocument()
+    {
+        IsLoading = true;
+        ErrorMessage = "";
+
+        try
+        {
+            Document = await DocumentService.GetDocumentDetailsAsync(DocumentId, CurrentUserId);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            ErrorMessage = "You do not have access to this document.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load document: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task DownloadDocument()
+    {
+        try
+        {
+            var stream = await DocumentService.OpenDocumentStreamAsync(DocumentId, CurrentUserId);
+            // Note: In a real Blazor app, you would use JS interop to trigger download
+            SuccessMessage = "Download functionality requires JS interop implementation.";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Download failed: {ex.Message}";
+        }
+    }
+
+    private void ToggleEditMode()
+    {
+        // Placeholder for edit mode toggle
+        SuccessMessage = "Edit functionality - implementation for Phase 3";
+    }
+
+    private async Task OpenShareModal()
+    {
+        ShareError = "";
+        SelectedUserIds.Clear();
+        ShareMessage = "";
+        IsSharing = false;
+
+        // Load available users for sharing (all users except current user)
+        try
+        {
+            var allUsers = await UserService.GetAllUsersAsync();
+            AvailableUsers = allUsers
+                .Where(u => u.UserId != CurrentUserId)
+                .Select(u => new Services.DocumentUserInfo { UserId = u.UserId, UserName = u.DisplayName })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            ShareError = $"Failed to load users: {ex.Message}";
+        }
+    }
+
+    private void HandleUserSelection(int userId, bool isSelected)
+    {
+        if (isSelected)
+            SelectedUserIds.Add(userId);
+        else
+            SelectedUserIds.Remove(userId);
+    }
+
+    private async Task SendShares()
+    {
+        if (SelectedUserIds.Count == 0)
+        {
+            ShareError = "Please select at least one recipient.";
+            return;
+        }
+
+        IsSharing = true;
+        ShareError = "";
+
+        try
+        {
+            var request = new Services.DocumentShareRequest
+            {
+                RecipientUserIds = SelectedUserIds.ToList(),
+                CanEditMetadata = false, // Sharing is read-only unless specified otherwise
+                Message = ShareMessage
+            };
+
+            await DocumentService.ShareDocumentAsync(DocumentId, CurrentUserId, request);
+
+            SuccessMessage = $"Document successfully shared with {SelectedUserIds.Count} recipient{(SelectedUserIds.Count == 1 ? "" : "s")}! They will receive a notification.";
+            SelectedUserIds.Clear();
+            ShareMessage = "";
+
+            // Close modal via JS
+            await JSRuntime.InvokeVoidAsync("eval", "$('#shareModal').modal('hide');");
+        }
+        catch (Exception ex)
+        {
+            ShareError = $"Failed to share document: {ex.Message}";
+        }
+        finally
+        {
+            IsSharing = false;
+        }
+    }
+
+    private async Task DeleteDocument()
+    {
+        var confirmation = await JSRuntime.InvokeAsync<bool>(
+            "confirm", 
+            "This action cannot be undone. The document will be permanently deleted.\\n\\nContinue?"
+        );
+        
+        if (!confirmation)
+            return;
+
+        try
+        {
+            await DocumentService.DeleteDocumentAsync(DocumentId, CurrentUserId);
+            SuccessMessage = "Document has been permanently deleted.";
+            await Task.Delay(1500);
+            NavManager.NavigateTo("/documents");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to delete document: {ex.Message}";
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    [Inject]
+    private IJSRuntime JSRuntime { get; set; } = null!;
+}

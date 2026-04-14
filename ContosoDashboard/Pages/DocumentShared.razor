@@ -1,0 +1,204 @@
+@page "/documents/shared"
+@using ContosoDashboard.Services
+@using ContosoDashboard.Models
+@inject IDocumentService DocumentService
+@inject NavigationManager NavManager
+
+<PageTitle>Shared Documents - ContosoDashboard</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1><span class="bi bi-share"></span> Documents Shared with Me</h1>
+            <p class="text-muted">Access files shared by colleagues</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="/documents" class="btn btn-secondary">
+                <span class="bi bi-arrow-left"></span> Back to My Documents
+            </a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (IsLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading shared documents...</p>
+        </div>
+    }
+    else if (SharedDocuments == null || SharedDocuments.Count == 0)
+    {
+        <div class="alert alert-info">
+            <h5 class="alert-heading">No Shared Documents</h5>
+            <p>You don't have any documents shared with you yet. When someone shares a document, it will appear here.</p>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <span class="bi bi-share"></span> Shared Documents
+                    <span class="badge bg-primary">@SharedDocuments.Count</span>
+                </h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 35%;">Title</th>
+                            <th style="width: 20%;">Shared By</th>
+                            <th style="width: 12%;">Category</th>
+                            <th style="width: 10%;">Size</th>
+                            <th style="width: 15%;">Shared Date</th>
+                            <th style="width: 8%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var doc in SharedDocuments)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@doc.Title</strong>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(doc.SharedByUserName))
+                                    {
+                                        <span>@doc.SharedByUserName</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">(Unknown)</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">@doc.Category</span>
+                                </td>
+                                <td>
+                                    @FormatFileSize(doc.FileSize)
+                                </td>
+                                <td>
+                                    @doc.SharedDate.ToString("yyyy-MM-dd")
+                                </td>
+                                <td>
+                                    <a href="/document-details/@doc.DocumentId" class="btn btn-sm btn-primary" title="View Details">
+                                        <span class="bi bi-eye"></span>
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationState { get; set; } = null!;
+
+    private int CurrentUserId;
+    private List<DocumentSharedInfo> SharedDocuments = new();
+    private bool IsLoading = false;
+    private string ErrorMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationState;
+        if (!authState.User.Identity?.IsAuthenticated ?? true)
+        {
+            NavManager.NavigateTo("/login");
+            return;
+        }
+
+        var userIdClaim = authState.User.FindFirst("UserId")?.Value;
+        if (int.TryParse(userIdClaim, out var userId))
+        {
+            CurrentUserId = userId;
+            await LoadSharedDocuments();
+        }
+        else
+        {
+            ErrorMessage = "Could not determine user ID.";
+        }
+    }
+
+    private async Task LoadSharedDocuments()
+    {
+        IsLoading = true;
+        ErrorMessage = "";
+
+        try
+        {
+            // Use a query that filters for shared-with-me documents
+            // This will require a new method in DocumentService or a custom query
+            // For now, we'll use GetDocumentsForUserAsync and filter results
+            var query = new Services.DocumentQuery
+            {
+                PageNumber = 1,
+                PageSize = 100
+            };
+
+            var allAuthDocuments = await DocumentService.GetDocumentsForUserAsync(CurrentUserId, query);
+            
+            // Filter to only shared documents (not owned by current user)
+            SharedDocuments = allAuthDocuments
+                .Where(d => d.OwnerUserId != CurrentUserId)
+                .Select(d => new DocumentSharedInfo
+                {
+                    DocumentId = d.DocumentId,
+                    Title = d.Title,
+                    Category = d.Category,
+                    FileSize = d.FileSize,
+                    SharedDate = d.UploadedDate, // Using UploadedDate as SharedDate (would need GetDocumentShareDetailsAsync for actual share date)
+                    SharedByUserName = "", // Would need additional query to get sharer name
+                })
+                .ToList();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            ErrorMessage = "You do not have permission to view shared documents.";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load shared documents: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private class DocumentSharedInfo
+    {
+        public int DocumentId { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public long FileSize { get; set; }
+        public DateTime SharedDate { get; set; }
+        public string? SharedByUserName { get; set; }
+    }
+}

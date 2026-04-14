@@ -10,6 +10,11 @@ public interface INotificationService
     Task<Notification> CreateNotificationAsync(Notification notification);
     Task<bool> MarkAsReadAsync(int notificationId, int requestingUserId);
     Task<int> GetUnreadCountAsync(int userId);
+    
+    // Document-specific notification helpers
+    Task CreateDocumentShareNotificationAsync(int recipientUserId, string documentTitle, string? message = null);
+    Task CreateDocumentTaskAttachmentNotificationAsync(int taskOwnerId, string documentTitle, string taskTitle);
+    Task CreateDocumentProjectAttachmentNotificationAsync(int projectManagerId, string documentTitle, string projectName);
 }
 
 public class NotificationService : INotificationService
@@ -68,5 +73,62 @@ public class NotificationService : INotificationService
     {
         return await _context.Notifications
             .CountAsync(n => n.UserId == userId && !n.IsRead);
+    }
+
+    /// <summary>
+    /// Create a notification when a document is shared with a user.
+    /// </summary>
+    public async Task CreateDocumentShareNotificationAsync(int recipientUserId, string documentTitle, string? message = null)
+    {
+        var notification = new Notification
+        {
+            UserId = recipientUserId,
+            Title = "Document Shared",
+            Message = $"A document '{documentTitle}' has been shared with you." + (string.IsNullOrEmpty(message) ? "" : $"\n\nMessage: {message}"),
+            Type = NotificationType.DocumentShareReceived,
+            Priority = NotificationPriority.Important,
+            IsRead = false,
+            CreatedDate = DateTime.UtcNow
+        };
+
+        await CreateNotificationAsync(notification);
+    }
+
+    /// <summary>
+    /// Create a notification when a document is attached to a task.
+    /// </summary>
+    public async Task CreateDocumentTaskAttachmentNotificationAsync(int taskOwnerId, string documentTitle, string taskTitle)
+    {
+        var notification = new Notification
+        {
+            UserId = taskOwnerId,
+            Title = "Document Attached to Task",
+            Message = $"A document '{documentTitle}' has been attached to the task '{taskTitle}'.",
+            Type = NotificationType.DocumentTaskAttached,
+            Priority = NotificationPriority.Important,
+            IsRead = false,
+            CreatedDate = DateTime.UtcNow
+        };
+
+        await CreateNotificationAsync(notification);
+    }
+
+    /// <summary>
+    /// Create a notification when a document is attached to a project.
+    /// </summary>
+    public async Task CreateDocumentProjectAttachmentNotificationAsync(int projectManagerId, string documentTitle, string projectName)
+    {
+        var notification = new Notification
+        {
+            UserId = projectManagerId,
+            Title = "Document Attached to Project",
+            Message = $"A document '{documentTitle}' has been attached to the project '{projectName}'.",
+            Type = NotificationType.DocumentProjectAttached,
+            Priority = NotificationPriority.Important,
+            IsRead = false,
+            CreatedDate = DateTime.UtcNow
+        };
+
+        await CreateNotificationAsync(notification);
     }
 }

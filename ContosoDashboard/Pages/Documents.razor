@@ -1,0 +1,277 @@
+@page "/documents"
+@using ContosoDashboard.Services
+@using ContosoDashboard.Models
+@inject IDocumentService DocumentService
+@inject NavigationManager NavManager
+
+<PageTitle>Documents - ContosoDashboard</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1><span class="bi bi-file-earmark"></span> My Documents</h1>
+            <p class="text-muted">Manage your files and discover shared documents</p>
+            @if (TotalDocumentCount > 0)
+            {
+                <p class="mt-2"><small>You have <strong>@TotalDocumentCount</strong> document@(TotalDocumentCount == 1 ? "" : "s")</small></p>
+            }
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="/documents/upload" class="btn btn-primary">
+                <span class="bi bi-cloud-upload"></span> Upload Document
+            </a>
+            <a href="/documents/shared" class="btn btn-info ms-2">
+                <span class="bi bi-share"></span> Shared with Me
+            </a>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Search & Filter</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-5">
+                    <label class="form-label">Search</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" placeholder="Title, tags, description..." @bind="SearchTerm" @oninput="OnSearchChanged" />
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Category</label>
+                    <select class="form-select" value="@SelectedCategory" @onchange="OnCategoryChanged">
+                        <option value="">-- All Categories --</option>
+                        @foreach (var category in AvailableCategories)
+                        {
+                            <option value="@category">@category</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Project</label>
+                    <select class="form-select" value="@SelectedProjectIdStr" @onchange="OnProjectChanged">
+                        <option value="">-- All Projects --</option>
+                        @foreach (var proj in AvailableProjects)
+                        {
+                            <option value="@proj.ProjectId">@proj.ProjectName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button class="btn btn-secondary w-100" @onclick="ResetFilters" title="Clear all filters">
+                        <span class="bi bi-arrow-counterclockwise"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>Error:</strong> @ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (IsLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading documents...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading your documents...</p>
+        </div>
+    }
+    else if (DocumentsList.Count == 0)
+    {
+        <div class="alert alert-info text-center py-5">
+            <h4><span class="bi bi-inbox"></span> No Documents Found</h4>
+            <p class="mb-3">You haven't uploaded any documents yet, or your search didn't return any results.</p>
+            <a href="/documents/upload" class="btn btn-primary">
+                <span class="bi bi-plus-circle"></span> Upload Your First Document
+            </a>
+            <a href="/documents/shared" class="btn btn-outline-info ms-2">
+                <span class="bi bi-share"></span> Check Shared Documents
+            </a>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 40%;">Title</th>
+                            <th style="width: 12%;">Category</th>
+                            <th style="width: 10%;">Size</th>
+                            <th style="width: 15%;">Uploaded</th>
+                            <th style="width: 15%;">Project</th>
+                            <th style="width: 8%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var doc in DocumentsList)
+                        {
+                            <tr>
+                                <td>
+                                    <strong class="text-truncate d-block" title="@doc.Title">@doc.Title</strong>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">@doc.Category</span>
+                                </td>
+                                <td class="text-nowrap">
+                                    @FormatFileSize(doc.FileSize)
+                                </td>
+                                <td class="text-nowrap">
+                                    <small>@doc.UploadedDate.ToString("MMM d, yyyy")</small>
+                                </td>
+                                <td>
+                                    @if (string.IsNullOrEmpty(doc.ProjectName))
+                                    {
+                                        <small class="text-muted">-</small>
+                                    }
+                                    else
+                                    {
+                                        <small>@doc.ProjectName</small>
+                                    }
+                                </td>
+                                <td>
+                                    <a href="/document-details/@doc.DocumentId" class="btn btn-sm btn-outline-info" title="View document details">
+                                        <span class="bi bi-eye"></span>
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationState { get; set; } = null!;
+    
+    private int CurrentUserId;
+    private List<DocumentSummary> DocumentsList = new();
+    private List<string> AvailableCategories = new();
+    private List<(int ProjectId, string ProjectName)> AvailableProjects = new();
+    private int TotalDocumentCount = 0;
+    
+    private bool IsLoading = false;
+    private string ErrorMessage = "";
+    private string SearchTerm = "";
+    private string SelectedCategory = "";
+    private string SelectedProjectIdStr = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationState;
+        if (!authState.User.Identity?.IsAuthenticated ?? true)
+        {
+            NavManager.NavigateTo("/login");
+            return;
+        }
+
+        var userIdClaim = authState.User.FindFirst("UserId")?.Value;
+        if (int.TryParse(userIdClaim, out var userId))
+        {
+            CurrentUserId = userId;
+        }
+
+        await LoadFilterOptions();
+        await RefreshDocuments();
+    }
+
+    private async Task LoadFilterOptions()
+    {
+        try
+        {
+            // Load available categories
+            AvailableCategories = (await DocumentService.GetAvailableCategoriesAsync(CurrentUserId)).ToList();
+            
+            // Load available projects
+            AvailableProjects = (await DocumentService.GetUserProjectsForDocumentsAsync(CurrentUserId)).ToList();
+            
+            // Load total count
+            TotalDocumentCount = await DocumentService.GetDocumentCountForUserAsync(CurrentUserId);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load filter options: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshDocuments()
+    {
+        ErrorMessage = "";
+        IsLoading = true;
+
+        try
+        {
+            var projectId = string.IsNullOrWhiteSpace(SelectedProjectIdStr) || !int.TryParse(SelectedProjectIdStr, out var pid) ? (int?)null : pid;
+            
+            var query = new DocumentQuery
+            {
+                SearchTerm = string.IsNullOrWhiteSpace(SearchTerm) ? null : SearchTerm,
+                Category = string.IsNullOrWhiteSpace(SelectedCategory) ? null : SelectedCategory,
+                ProjectId = projectId,
+                PageNumber = 1,
+                PageSize = 100  // Increased for better performance
+            };
+
+            DocumentsList = (await DocumentService.GetDocumentsForUserAsync(CurrentUserId, query)).ToList();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load documents: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task OnSearchChanged(ChangeEventArgs e)
+    {
+        SearchTerm = e.Value?.ToString() ?? "";
+        await RefreshDocuments();
+    }
+
+    private async Task OnCategoryChanged(ChangeEventArgs e)
+    {
+        SelectedCategory = e.Value?.ToString() ?? "";
+        await RefreshDocuments();
+    }
+
+    private async Task OnProjectChanged(ChangeEventArgs e)
+    {
+        SelectedProjectIdStr = e.Value?.ToString() ?? "";
+        await RefreshDocuments();
+    }
+
+    private async Task ResetFilters()
+    {
+        SearchTerm = "";
+        SelectedCategory = "";
+        SelectedProjectIdStr = "";
+        await RefreshDocuments();
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

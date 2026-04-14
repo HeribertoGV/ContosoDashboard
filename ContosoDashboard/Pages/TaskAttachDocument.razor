@@ -1,0 +1,288 @@
+@page "/tasks/{TaskIdStr}/attach-document"
+@using ContosoDashboard.Services
+@using ContosoDashboard.Models
+@inject IDocumentService DocumentService
+@inject NavigationManager NavManager
+
+<PageTitle>Attach Document to Task - ContosoDashboard</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1>
+                <span class="bi bi-paperclip"></span> Attach Document to Task
+            </h1>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(SuccessMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show\" role=\"alert\">
+            <h5 class=\"alert-heading\"><span class=\"bi bi-check-circle\"></span> Success!</h5>
+            @SuccessMessage
+            <button type=\"button\" class=\"btn-close\" data-bs-dismiss=\"alert\" aria-label=\"Close\"></button>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Select Document</h5>
+                </div>
+                <div class="card-body">
+                    @if (IsLoading)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading your documents...</p>
+                        </div>
+                    }
+                    else if (AvailableDocuments == null || AvailableDocuments.Count == 0)
+                    {
+                        <div class="alert alert-info">
+                            <h5 class="alert-heading">No Documents Available</h5>
+                            <p>You don't have any documents to attach. Please <a href="/documents/upload" class="alert-link">upload a document</a> first.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label for="documentSelect" class="form-label">Choose a document:</label>
+                            <div class="input-group">
+                                <select class="form-select" id="documentSelect" @bind="SelectedDocumentId">
+                                    <option value="0">-- Select a document --</option>
+                                    @foreach (var doc in AvailableDocuments)
+                                    {
+                                        <option value="@doc.DocumentId">
+                                            @doc.Title (@FormatFileSize(doc.FileSize))
+                                        </option>
+                                    }
+                                </select>
+                                <span class="input-group-text">
+                                    <span class="bi bi-file-earmark-plus"></span>
+                                </span>
+                            </div>
+                        </div>
+
+                        @if (SelectedDocumentId > 0 && GetSelectedDocumentDetails() != null)
+                        {
+                            var selected = GetSelectedDocumentDetails();
+                            <div class="alert alert-light border">
+                                <h6>Selected Document Details:</h6>
+                                <div class="row mt-3">
+                                    <div class="col-md-6">
+                                        <strong>Title:</strong>
+                                        <p>@selected.Title</p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <strong>Category:</strong>
+                                        <p><span class="badge bg-secondary">@selected.Category</span></p>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <strong>Size:</strong>
+                                        <p>@FormatFileSize(selected.FileSize)</p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <strong>Uploaded:</strong>
+                                        <p>@selected.UploadedDate.ToString("yyyy-MM-dd HH:mm")</p>
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(selected.Description))
+                                {
+                                    <div class="mt-3">
+                                        <strong>Description:</strong>
+                                        <p>@selected.Description</p>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <div class="mt-4">
+                            <button type="button" class="btn btn-primary" 
+                                    @onclick="AttachDocument" 
+                                    disabled="@(IsAttaching || SelectedDocumentId == 0)">
+                                @if (IsAttaching)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                    <span>Attaching...</span>
+                                }
+                                else
+                                {
+                                    <span>Attach Document to Task</span>
+                                }
+                            </button>
+                            <a href="@GetTaskBackLink()" class="btn btn-secondary">Cancel</a>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string TaskIdStr { get; set; } = "";
+
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationState { get; set; } = null!;
+
+    private int CurrentUserId;
+    private int TaskId;
+    private List<DocumentSummaryInfo> AvailableDocuments = new();
+    private int SelectedDocumentId = 0;
+    private bool IsLoading = false;
+    private bool IsAttaching = false;
+    private string ErrorMessage = "";
+    private string SuccessMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationState;
+        if (!authState.User.Identity?.IsAuthenticated ?? true)
+        {
+            NavManager.NavigateTo("/login");
+            return;
+        }
+
+        var userIdClaim = authState.User.FindFirst("UserId")?.Value;
+        if (int.TryParse(userIdClaim, out var userId))
+        {
+            CurrentUserId = userId;
+        }
+
+        if (int.TryParse(TaskIdStr, out var taskId))
+        {
+            TaskId = taskId;
+            await LoadUserDocuments();
+        }
+        else
+        {
+            ErrorMessage = "Invalid task ID.";
+        }
+    }
+
+    private async Task LoadUserDocuments()
+    {
+        IsLoading = true;
+        ErrorMessage = "";
+
+        try
+        {
+            var query = new Services.DocumentQuery
+            {
+                PageNumber = 1,
+                PageSize = 100
+            };
+
+            var documents = await DocumentService.GetDocumentsForUserAsync(CurrentUserId, query);
+            
+            AvailableDocuments = documents
+                .Select(d => new DocumentSummaryInfo
+                {
+                    DocumentId = d.DocumentId,
+                    Title = d.Title,
+                    Category = d.Category,
+                    FileSize = d.FileSize,
+                    UploadedDate = d.UploadedDate,
+                    Description = "" // Not available in DocumentSummary
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load documents: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private DocumentSummaryInfo? GetSelectedDocumentDetails()
+    {
+        return AvailableDocuments.FirstOrDefault(d => d.DocumentId == SelectedDocumentId);
+    }
+
+    private async Task AttachDocument()
+    {
+        if (SelectedDocumentId == 0)
+        {
+            ErrorMessage = "Please select a document.";
+            return;
+        }
+
+        IsAttaching = true;
+        ErrorMessage = "";
+        SuccessMessage = "";
+
+        try
+        {
+            await DocumentService.AttachDocumentToTaskAsync(SelectedDocumentId, TaskId, CurrentUserId);
+            SuccessMessage = "Document successfully attached to task!";
+            
+            // Redirect back to task details after a short delay
+            await Task.Delay(1500);
+            NavManager.NavigateTo(GetTaskBackLink());
+        }
+        catch (UnauthorizedAccessException)
+        {
+            ErrorMessage = "You do not have permission to attach documents to this task.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to attach document: {ex.Message}";
+        }
+        finally
+        {
+            IsAttaching = false;
+        }
+    }
+
+    private string GetTaskBackLink()
+    {
+        // Assuming task details page route is /tasks/{taskId} or similar
+        // You may need to adjust this based on your actual routing
+        return $"/tasks";
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    // Internal data structure for document summary display
+    private class DocumentSummaryInfo
+    {
+        public int DocumentId { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public long FileSize { get; set; }
+        public DateTime UploadedDate { get; set; }
+        public string? Description { get; set; }
+    }
+}

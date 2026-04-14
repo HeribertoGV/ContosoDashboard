@@ -1,0 +1,190 @@
+@page "/documents/upload"
+@using ContosoDashboard.Services
+@using ContosoDashboard.Models
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDocumentService DocumentService
+@inject IProjectService ProjectService
+@inject NavigationManager NavManager
+
+<PageTitle>Upload Document - ContosoDashboard</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1><span class="bi bi-cloud-upload"></span> Upload Document</h1>
+            <p class="text-muted">Share your files securely with colleagues and projects</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <h5 class="alert-heading"><span class="bi bi-exclamation-circle"></span> Upload Failed</h5>
+            @ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(SuccessMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <h5 class="alert-heading"><span class="bi bi-check-circle"></span> Upload Successful</h5>
+            @SuccessMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <form>
+        <div class="card">
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="title" class="form-label">Document Title <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="title" @bind="Request.Title" maxlength="255" placeholder="e.g., Q1 Financial Report" required />
+                    <small class="form-text text-muted">Choose a descriptive title for easy searching</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="category" class="form-label">Category <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="category" @bind="Request.Category" maxlength="100" placeholder="e.g., Report, Contract, Specification" required />
+                    <small class="form-text text-muted">Helps organize and filter your documents</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="description" class="form-label">Description</label>
+                    <textarea class="form-control" id="description" @bind="Request.Description" maxlength="2000" rows="3" placeholder="Optional description"></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label for="tags" class="form-label">Tags</label>
+                    <input type="text" class="form-control" id="tags" @bind="Request.Tags" maxlength="500" placeholder="Comma-separated tags (optional)" />
+                </div>
+
+                <div class="mb-3">
+                    <label for="project" class="form-label">Project</label>
+                    <select class="form-select" id="project" @bind="@SelectedProjectIdStr">
+                        <option value="">-- Select Project (Optional) --</option>
+                        @foreach (var project in Projects)
+                        {
+                            <option value="@project.ProjectId">@project.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label for="file" class="form-label">File <span class="text-danger">*</span></label>
+                    <InputFile id="file" OnChange="HandleFileSelected" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.gif" />
+                    <small class="form-text text-muted">Maximum 25 MB. Allowed: PDF, Word, Excel, Text, CSV, Images</small>
+                </div>
+            </div>
+
+            <div class="card-footer">
+                <button type="button" class="btn btn-primary" @onclick="HandleUpload" disabled="@IsUploading">
+                    @if (IsUploading)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Uploading...</span>
+                    }
+                    else
+                    {
+                        <span>Upload Document</span>
+                    }
+                </button>
+                <a href="/documents" class="btn btn-secondary">Cancel</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationState { get; set; } = null!;
+    
+    private IBrowserFile? SelectedFile;
+    private int CurrentUserId;
+    private string ErrorMessage = "";
+    private string SuccessMessage = "";
+    private bool IsUploading = false;
+    private List<Project> Projects = new();
+    private string SelectedProjectIdStr = "";
+
+    private DocumentUploadRequest Request = new DocumentUploadRequest();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationState;
+        if (!authState.User.Identity?.IsAuthenticated ?? true)
+        {
+            NavManager.NavigateTo("/login");
+            return;
+        }
+
+        var userIdClaim = authState.User.FindFirst("UserId")?.Value;
+        if (int.TryParse(userIdClaim, out var userId))
+        {
+            CurrentUserId = userId;
+        }
+
+        // Load projects for dropdown
+        Projects = (await ProjectService.GetUserProjectsAsync(CurrentUserId)).ToList();
+    }
+
+    private void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        SelectedFile = e.File;
+        ErrorMessage = "";
+    }
+
+    private async Task HandleUpload()
+    {
+        ErrorMessage = "";
+        SuccessMessage = "";
+
+        if (string.IsNullOrWhiteSpace(Request.Title))
+        {
+            ErrorMessage = "Title is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Request.Category))
+        {
+            ErrorMessage = "Category is required.";
+            return;
+        }
+
+        if (SelectedFile == null)
+        {
+            ErrorMessage = "Please select a file to upload.";
+            return;
+        }
+
+        try
+        {
+            IsUploading = true;
+
+            if (SelectedFile.Size > 26214400) // 25 MB
+            {
+                ErrorMessage = "File size exceeds 25 MB limit.";
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(SelectedProjectIdStr) && int.TryParse(SelectedProjectIdStr, out var projectId))
+            {
+                Request.ProjectId = projectId;
+            }
+
+            using var stream = SelectedFile.OpenReadStream(maxAllowedSize: 26214400);
+            var documentId = await DocumentService.UploadDocumentAsync(CurrentUserId, Request, stream);
+
+            SuccessMessage = "Document uploaded successfully!";
+            await Task.Delay(1500);
+            NavManager.NavigateTo($"/documents/{documentId}");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Upload failed: {ex.Message}";
+        }
+        finally
+        {
+            IsUploading = false;
+        }
+    }
+}

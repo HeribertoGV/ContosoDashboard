@@ -43,6 +43,7 @@ builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IDocumentService, DocumentService>();
 
 // Add HttpContextAccessor for accessing user claims
 builder.Services.AddHttpContextAccessor();
@@ -63,6 +64,25 @@ using (var scope = app.Services.CreateScope())
         var logger = services.GetRequiredService<ILogger<Program>>();
         logger.LogError(ex, "An error occurred creating the database.");
     }
+}
+
+// Initialize document storage folder
+try
+{
+    var uploadPath = builder.Configuration["DocumentStorage:UploadPath"] 
+        ?? Path.Combine(AppContext.BaseDirectory, "UploadedDocuments");
+    
+    if (!Directory.Exists(uploadPath))
+    {
+        Directory.CreateDirectory(uploadPath);
+        var logger = app.Services.GetRequiredService<ILogger<Program>>();
+        logger.LogInformation($"Created document storage directory: {uploadPath}");
+    }
+}
+catch (Exception ex)
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "An error occurred creating the document storage directory.");
 }
 
 // Configure the HTTP request pipeline.

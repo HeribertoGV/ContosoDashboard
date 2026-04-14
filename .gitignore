@@ -349,3 +349,9 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+# Application-specific uploads and temporary files
+UploadedDocuments/
+uploads/
+temp/
+*.tmp

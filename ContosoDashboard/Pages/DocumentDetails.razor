@@ -1,0 +1,18 @@
+@page "/documents/{DocumentIdStr}"
+@using ContosoDashboard.Services
+@inject NavigationManager NavManager
+
+@code {
+    [Parameter]
+    public string DocumentIdStr { get; set; } = "";
+
+    protected override void OnInitialized()
+    {
+        // Redirect to DocumentDetailsView
+        if (!string.IsNullOrEmpty(DocumentIdStr))
+        {
+            NavManager.NavigateTo($"/document-details/{DocumentIdStr}", replace: true);
+        }
+    }
+}
+

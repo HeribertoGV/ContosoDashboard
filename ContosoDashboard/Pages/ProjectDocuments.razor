@@ -1,0 +1,224 @@
+@page "/projects/{ProjectIdStr}/documents"
+@using ContosoDashboard.Services
+@using ContosoDashboard.Models
+@inject IDocumentService DocumentService
+@inject IProjectService ProjectService
+@inject NavigationManager NavManager
+
+<PageTitle>Project Documents - ContosoDashboard</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1>
+                <span class="bi bi-folder-fill"></span> @(Project?.Name ?? "Loading...")
+            </h1>
+            <p class="text-muted">Project Documents</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="/projects" class="btn btn-secondary">
+                <span class="bi bi-arrow-left"></span> Back to Projects
+            </a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (IsLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading project documents...</p>
+        </div>
+    }
+    else if (ProjectDocumentsList == null || ProjectDocumentsList.Count == 0)
+    {
+        <div class="alert alert-info">
+            <h5 class="alert-heading">No Documents in Project</h5>
+            <p>This project doesn't have any attached documents yet. Documents can be attached to projects to keep relevant files organized with project activities.</p>
+        </div>
+    }
+    else if (Project != null)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <span class="bi bi-file-earmark"></span> Attached Documents
+                    <span class="badge bg-primary">@ProjectDocumentsList.Count</span>
+                </h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 35%;">Title</th>
+                            <th style="width: 15%;">Owner</th>
+                            <th style="width: 12%;">Category</th>
+                            <th style="width: 10%;">Size</th>
+                            <th style="width: 15%;">Attached Date</th>
+                            <th style="width: 13%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var doc in ProjectDocumentsList)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@doc.Title</strong>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(doc.OwnerName))
+                                    {
+                                        <span>@doc.OwnerName</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">(Unknown)</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">@doc.Category</span>
+                                </td>
+                                <td>
+                                    @FormatFileSize(doc.FileSize)
+                                </td>
+                                <td>
+                                    @doc.AttachedDate.ToString("yyyy-MM-dd")
+                                </td>
+                                <td>
+                                    <a href="/document-details/@doc.DocumentId" class="btn btn-sm btn-primary" title="View">
+                                        <span class="bi bi-eye"></span> View
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string ProjectIdStr { get; set; } = "";
+
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationState { get; set; } = null!;
+
+    private int CurrentUserId;
+    private int ProjectId;
+    private Project? Project;
+    private List<ProjectDocumentInfo> ProjectDocumentsList = new();
+    private bool IsLoading = false;
+    private string ErrorMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationState;
+        if (!authState.User.Identity?.IsAuthenticated ?? true)
+        {
+            NavManager.NavigateTo("/login");
+            return;
+        }
+
+        var userIdClaim = authState.User.FindFirst("UserId")?.Value;
+        if (int.TryParse(userIdClaim, out var userId))
+        {
+            CurrentUserId = userId;
+        }
+
+        if (int.TryParse(ProjectIdStr, out var projectId))
+        {
+            ProjectId = projectId;
+            await LoadProjectData();
+        }
+        else
+        {
+            ErrorMessage = "Invalid project ID.";
+        }
+    }
+
+    private async Task LoadProjectData()
+    {
+        IsLoading = true;
+        ErrorMessage = "";
+
+        try
+        {
+            // Load project details
+            var projects = await ProjectService.GetUserProjectsAsync(CurrentUserId);
+            Project = projects.FirstOrDefault(p => p.ProjectId == ProjectId);
+
+            if (Project == null)
+            {
+                ErrorMessage = "Project not found or access denied.";
+                return;
+            }
+
+            // Load project documents
+            // Since we don't have a dedicated method for this yet, we'll need to implement
+            // a call to get documents for a specific project
+            // For now, we'll create a placeholder that filters documents
+            var query = new Services.DocumentQuery
+            {
+                ProjectId = ProjectId,
+                PageNumber = 1,
+                PageSize = 100
+            };
+
+            var documents = await DocumentService.GetDocumentsForUserAsync(CurrentUserId, query);
+            
+            // Build project document list (would need actual ProjectDocument DB lookup for better info)
+            ProjectDocumentsList = documents
+                .Select(d => new ProjectDocumentInfo
+                {
+                    DocumentId = d.DocumentId,
+                    Title = d.Title,
+                    Category = d.Category,
+                    FileSize = d.FileSize,
+                    AttachedDate = d.UploadedDate,
+                    OwnerName = "", // Would need join to User table for actual owner name
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load project documents: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private class ProjectDocumentInfo
+    {
+        public int DocumentId { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public long FileSize { get; set; }
+        public DateTime AttachedDate { get; set; }
+        public string? OwnerName { get; set; }
+    }
+}

@@ -17,6 +17,13 @@ public class ApplicationDbContext : DbContext
     public DbSet<Notification> Notifications { get; set; } = null!;
     public DbSet<ProjectMember> ProjectMembers { get; set; } = null!;
     public DbSet<Announcement> Announcements { get; set; } = null!;
+    
+    // Document management entities
+    public DbSet<Document> Documents { get; set; } = null!;
+    public DbSet<DocumentShare> DocumentShares { get; set; } = null!;
+    public DbSet<ProjectDocument> ProjectDocuments { get; set; } = null!;
+    public DbSet<TaskDocument> TaskDocuments { get; set; } = null!;
+    public DbSet<DocumentActivity> DocumentActivities { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,6 +70,123 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Email)
             .IsUnique();
+
+        // Configure Document relationships and indexes
+        modelBuilder.Entity<Document>()
+            .HasOne(d => d.OwnerUser)
+            .WithMany()
+            .HasForeignKey(d => d.OwnerUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Document>()
+            .HasOne(d => d.Project)
+            .WithMany()
+            .HasForeignKey(d => d.ProjectId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Document>()
+            .HasMany(d => d.DocumentShares)
+            .WithOne(ds => ds.Document)
+            .HasForeignKey(ds => ds.DocumentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Document>()
+            .HasMany(d => d.ProjectDocuments)
+            .WithOne(pd => pd.Document)
+            .HasForeignKey(pd => pd.DocumentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Document>()
+            .HasMany(d => d.DocumentActivities)
+            .WithOne(da => da.Document)
+            .HasForeignKey(da => da.DocumentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Configure DocumentShare relationships
+        modelBuilder.Entity<DocumentShare>()
+            .HasOne(ds => ds.Document)
+            .WithMany(d => d.DocumentShares)
+            .HasForeignKey(ds => ds.DocumentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<DocumentShare>()
+            .HasOne(ds => ds.RecipientUser)
+            .WithMany()
+            .HasForeignKey(ds => ds.RecipientUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<DocumentShare>()
+            .HasOne(ds => ds.SharedByUser)
+            .WithMany()
+            .HasForeignKey(ds => ds.SharedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Configure ProjectDocument relationships
+        modelBuilder.Entity<ProjectDocument>()
+            .HasOne(pd => pd.Document)
+            .WithMany(d => d.ProjectDocuments)
+            .HasForeignKey(pd => pd.DocumentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProjectDocument>()
+            .HasOne(pd => pd.Project)
+            .WithMany()
+            .HasForeignKey(pd => pd.ProjectId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProjectDocument>()
+            .HasOne(pd => pd.AttachedByUser)
+            .WithMany()
+            .HasForeignKey(pd => pd.AttachedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Configure TaskDocument relationships
+        modelBuilder.Entity<TaskDocument>()
+            .HasOne(td => td.Document)
+            .WithMany(d => d.TaskDocuments)
+            .HasForeignKey(td => td.DocumentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<TaskDocument>()
+            .HasOne(td => td.Task)
+            .WithMany()
+            .HasForeignKey(td => td.TaskId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<TaskDocument>()
+            .HasOne(td => td.AttachedByUser)
+            .WithMany()
+            .HasForeignKey(td => td.AttachedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Configure DocumentActivity relationships
+        modelBuilder.Entity<DocumentActivity>()
+            .HasOne(da => da.Document)
+            .WithMany(d => d.DocumentActivities)
+            .HasForeignKey(da => da.DocumentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<DocumentActivity>()
+            .HasOne(da => da.PerformedByUser)
+            .WithMany()
+            .HasForeignKey(da => da.PerformedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Document indexes for performance
+        modelBuilder.Entity<Document>()
+            .HasIndex(d => new { d.OwnerUserId, d.IsDeleted });
+
+        modelBuilder.Entity<Document>()
+            .HasIndex(d => d.UploadedDate);
+
+        modelBuilder.Entity<Document>()
+            .HasIndex(d => d.Category);
+
+        modelBuilder.Entity<DocumentShare>()
+            .HasIndex(ds => new { ds.RecipientUserId, ds.IsActive });
+
+        modelBuilder.Entity<DocumentActivity>()
+            .HasIndex(da => new { da.DocumentId, da.Timestamp });
 
         // Seed initial data
         SeedData(modelBuilder);
